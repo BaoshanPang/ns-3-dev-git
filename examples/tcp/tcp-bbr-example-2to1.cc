@@ -56,13 +56,14 @@ using namespace ns3;
 using namespace ns3::SystemPath;
 
 std::string dir;
-std::ofstream config;
+std::ofstream stats;
 std::ofstream throughput;
 std::ofstream queueSize;
 
 uint32_t prev1 = 0;
 uint32_t prev2 = 0;
 Time prevTime;
+double totalTxBytes = 0.0;
 
 // Calculate throughput
 static void
@@ -87,6 +88,7 @@ TraceThroughput(Ptr<FlowMonitor> monitor)
         prevTime = curTime;
         prev1 = f1.txBytes;
         prev2 = f2.txBytes;
+        totalTxBytes = prev1 + prev2;
     }
 
     Simulator::Schedule(Seconds(0.2), &TraceThroughput, monitor);
@@ -125,6 +127,7 @@ main(int argc, char* argv[])
     // Naming the output directory using local system time
     time_t rawtime;
     struct tm* timeinfo;
+    bool queueUseEcn = false;
     char buffer[80];
     time(&rawtime);
     timeinfo = localtime(&rawtime);
@@ -146,9 +149,12 @@ main(int argc, char* argv[])
     cmd.AddValue("stopTime",
                  "Stop time for applications / simulation time will be stopTime + 1",
                  stopTime);
+    cmd.AddValue("queueUseEcn", "use ECN on queue", queueUseEcn);
     cmd.Parse(argc, argv);
 
     std::string subdir = tcpTypeId + queueDisc;
+    subdir.replace(0, 3, "");
+    subdir.replace(subdir.size()-9, 9, "");
     queueDisc = std::string("ns3::") + queueDisc;
 
     Config::SetDefault("ns3::TcpL4Protocol::SocketType", StringValue("ns3::" + tcpTypeId));
@@ -163,6 +169,24 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
     Config::SetDefault("ns3::DropTailQueue<Packet>::MaxSize", QueueSizeValue(QueueSize("1p")));
     Config::SetDefault(queueDisc + "::MaxSize", QueueSizeValue(QueueSize("100p")));
+
+    if(queueUseEcn) {
+      Config::SetDefault("ns3::CoDelQueueDisc::UseEcn", BooleanValue(true));
+      Config::SetDefault("ns3::FqCoDelQueueDisc::UseEcn", BooleanValue(true));
+      Config::SetDefault("ns3::PieQueueDisc::UseEcn", BooleanValue(true));
+      Config::SetDefault("ns3::RedQueueDisc::UseEcn", BooleanValue(true));
+      // Enable TCP to use ECN regardless
+      Config::SetDefault("ns3::TcpSocketBase::UseEcn", StringValue("On"));
+      subdir = subdir + "Ecn";
+    }
+    else
+    {
+      Config::SetDefault("ns3::CoDelQueueDisc::UseEcn", BooleanValue(false));
+      Config::SetDefault("ns3::FqCoDelQueueDisc::UseEcn", BooleanValue(false));
+      Config::SetDefault("ns3::PieQueueDisc::UseEcn", BooleanValue(false));
+      Config::SetDefault("ns3::RedQueueDisc::UseEcn", BooleanValue(false));
+      Config::SetDefault("ns3::TcpSocketBase::UseEcn", StringValue("Off"));
+    }
 
     NodeContainer senders;
     NodeContainer receiver;
@@ -290,9 +314,9 @@ main(int argc, char* argv[])
     // std::filesystem::copy("PlotScripts/gnuplotScriptQueueSize", dir);
 
     // Trace the queue occupancy on the second interface of R1
-    tch.Uninstall(routers.Get(0)->GetDevice(1));
+    tch.Uninstall(routers.Get(0)->GetDevice(2));
     QueueDiscContainer qd;
-    qd = tch.Install(routers.Get(0)->GetDevice(1));
+    qd = tch.Install(routers.Get(0)->GetDevice(2));
     Simulator::ScheduleNow(&CheckQueueSize, qd.Get(0));
 
     // Generate PCAP traces if it is enabled
@@ -301,12 +325,6 @@ main(int argc, char* argv[])
         MakeDirectories(dir + "pcap/");
         bottleneckLink.EnablePcapAll(dir + "/pcap/bbr", true);
     }
-
-    // save the configure info
-    config.open(dir + "/config.dat", std::ios::out);
-    config << "tcpTypeId " << tcpTypeId << std::endl;
-    config << "queueDisc " << queueDisc << std::endl;
-    config.close();
 
     // Open files for writing throughput traces and queue size
     throughput.open(dir + "/throughput.dat", std::ios::out);
@@ -323,6 +341,10 @@ main(int argc, char* argv[])
     Simulator::Stop(stopTime + TimeStep(1));
     Simulator::Run();
     Simulator::Destroy();
+
+    stats.open(dir + "/../txbytes", std::ios::out | std::ios::app);
+    stats << subdir << " " << totalTxBytes << std::endl;
+    stats.close();
 
     throughput.close();
     queueSize.close();
