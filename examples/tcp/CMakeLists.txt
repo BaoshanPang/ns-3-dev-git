@@ -54,6 +54,15 @@ build_example(
 )
 
 build_example(
+  NAME tcp-cubic-media-server
+  SOURCE_FILES tcp-cubic-media-server.cc
+  LIBRARIES_TO_LINK
+    ${libpoint-to-point}
+    ${libapplications}
+    ${libinternet}
+)
+
+build_example(
   NAME tcp-bulk-send
   SOURCE_FILES tcp-bulk-send.cc
   LIBRARIES_TO_LINK
