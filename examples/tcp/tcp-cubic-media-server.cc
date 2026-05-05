@@ -128,6 +128,27 @@ Router1ReceiveSink(Ptr<const Packet> p)
     g_r1BytesTotal += p->GetSize();
 }
 
+std::ofstream g_server_rtt;
+
+
+// Callback for TCP RTT changes
+void
+RttTracer(Time oldRtt, Time newRtt)
+{
+    g_server_rtt << std::fixed << std::setprecision(3) << Simulator::Now().GetSeconds() << " "
+                 << newRtt.GetMilliSeconds() << std::endl;
+}
+
+void
+TraceRtt()
+{
+    Config::ConnectWithoutContext("/NodeList/0/$ns3::TcpL4Protocol/SocketList/*/RTT",
+                                  MakeCallback(&RttTracer));
+}
+
+
+
+
 } // namespace
 
 int
@@ -144,7 +165,7 @@ main(int argc, char* argv[])
     std::string routerLinkDelay = "5ms";
     std::string clientLinkRate = "100Mbps";
     std::string clientLinkDelay = "20ms";
-    Time startTime = Seconds(1);
+    Time startTime = Seconds(0);
     Time clientStartStagger = MilliSeconds(2);
     Time stopTime = Seconds(10);
     g_sampleInterval = Seconds(1);
@@ -291,6 +312,10 @@ main(int argc, char* argv[])
     serverDevices.Get(0)->TraceConnectWithoutContext("MacTx", MakeCallback(&ServerTransmitSink));
     serverDevices.Get(1)->TraceConnectWithoutContext("MacRx", MakeCallback(&Router1ReceiveSink));
 
+    g_server_rtt.open("server_rtt.dat");
+    g_server_rtt << "# timestamp rtt(ms)" << std::endl;
+    Simulator::Schedule(g_sampleInterval, &TraceRtt);
+
     Simulator::Stop(stopTime + Seconds(1));
     Simulator::Run();
 
@@ -313,5 +338,6 @@ main(int argc, char* argv[])
     g_clients_throughput.close();
     g_server_throughput.close();
     g_router1_throughput.close();
+    g_server_rtt.close();
     return 0;
 }
