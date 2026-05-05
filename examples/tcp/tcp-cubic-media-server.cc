@@ -39,6 +39,9 @@ NS_LOG_COMPONENT_DEFINE("TcpCubicMediaServerExample");
 
 namespace
 {
+std::ofstream g_router1_throughput;
+uint64_t g_r1BytesTotal = 0; // Accumulator for Router 1 Rx bytes
+uint64_t g_lastR1Bytes = 0;  // Router 1 bytes from previous sample
 std::ofstream g_server_throughput;
 
 uint64_t g_serverBytesTotal = 0; // Accumulator for server Tx bytes
@@ -95,6 +98,18 @@ TraceThroughput()
         g_lastServerBytes = g_serverBytesTotal;
     }
 
+    // 3. Calculate Router 1 throughput
+    if (now > g_previousSampleTime)
+    {
+        uint64_t diff = g_r1BytesTotal - g_lastR1Bytes;
+        double r1Mbps = (diff * 8.0) / (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
+
+        g_router1_throughput << std::fixed << std::setprecision(3) << now.GetSeconds() << " "
+                             << r1Mbps << std::endl;
+
+        g_lastR1Bytes = g_r1BytesTotal;
+    }
+
     g_previousSampleTime = now;
     Simulator::Schedule(g_sampleInterval, &TraceThroughput);
 }
@@ -104,6 +119,13 @@ void
 ServerTransmitSink(Ptr<const Packet> p)
 {
     g_serverBytesTotal += p->GetSize();
+}
+
+// Callback for Router 1 receiving packets from server
+void
+Router1ReceiveSink(Ptr<const Packet> p)
+{
+    g_r1BytesTotal += p->GetSize();
 }
 
 } // namespace
@@ -161,6 +183,9 @@ main(int argc, char* argv[])
 
     g_clients_throughput.open("clients_throughput.dat");
     g_clients_throughput << "# time(s) \"client_ip\" throughput(Mbps)" << std::endl;
+
+    g_router1_throughput.open("router1_throughput.dat");
+    g_router1_throughput << "# timestamp throughput" << std::endl;
 
     NodeContainer server;
     NodeContainer routers;
@@ -264,6 +289,7 @@ main(int argc, char* argv[])
 
     // serverDevices.Get(0) is the server's interface connected to router 1
     serverDevices.Get(0)->TraceConnectWithoutContext("MacTx", MakeCallback(&ServerTransmitSink));
+    serverDevices.Get(1)->TraceConnectWithoutContext("MacRx", MakeCallback(&Router1ReceiveSink));
 
     Simulator::Stop(stopTime + Seconds(1));
     Simulator::Run();
@@ -286,5 +312,6 @@ main(int argc, char* argv[])
     Simulator::Destroy();
     g_clients_throughput.close();
     g_server_throughput.close();
+    g_router1_throughput.close();
     return 0;
 }
