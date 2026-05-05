@@ -202,6 +202,27 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocketBase::UseEcn", EnumValue(TcpSocketState::On));
 
+
+    // Print the specific values being used for this simulation run
+    std::cout << "\n========== Simulation Configuration Values ==========" << std::endl;
+    std::cout << "nClients:           " << nClients << std::endl;
+    std::cout << "videoBytes:         " << videoBytes << std::endl;
+    std::cout << "packetSize:         " << packetSize << std::endl;
+    std::cout << "videoRate:          " << videoRate << std::endl;
+    std::cout << "tcpTypeId:          " << tcpTypeId << std::endl;
+    std::cout << "serverLinkRate:     " << serverLinkRate << std::endl;
+    std::cout << "serverLinkDelay:    " << serverLinkDelay << std::endl;
+    std::cout << "routerLinkRate:     " << routerLinkRate << std::endl;
+    std::cout << "routerLinkDelay:    " << routerLinkDelay << std::endl;
+    std::cout << "clientLinkRate:     " << clientLinkRate << std::endl;
+    std::cout << "clientLinkDelay:    " << clientLinkDelay << std::endl;
+    std::cout << "startTime:          " << startTime.GetSeconds() << "s" << std::endl;
+    std::cout << "clientStartStagger: " << clientStartStagger.GetMilliSeconds() << "ms" << std::endl;
+    std::cout << "stopTime:           " << stopTime.GetSeconds() << "s" << std::endl;
+    std::cout << "sampleInterval:     " << g_sampleInterval.GetSeconds() << "s" << std::endl;
+    std::cout << "enablePcap:         " << (enablePcap ? "true" : "false") << std::endl;
+    std::cout << "====================================================\n" << std::endl;
+
     g_clients_throughput.open("clients_throughput.dat");
     g_clients_throughput << "# time(s) \"client_ip\" throughput(Mbps)" << std::endl;
 
