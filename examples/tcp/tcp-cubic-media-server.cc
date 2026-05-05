@@ -39,7 +39,9 @@ NS_LOG_COMPONENT_DEFINE("TcpCubicMediaServerExample");
 
 namespace
 {
-
+std::ofstream g_clients_throughput;
+// Map to store previous Rx bytes per flow ID
+std::map<FlowId, uint64_t> g_prevFlowRx;
 std::ofstream g_throughput;
 uint64_t g_previousTotalRx = 0;
 uint64_t g_previousR1TotalRx = 0;
@@ -49,39 +51,37 @@ Ptr<FlowMonitor> g_monitor;
 Ptr<Ipv4FlowClassifier> g_classifier;
 
 void
-TraceAggregateThroughput()
+TraceThroughput()
 {
     const Time now = Simulator::Now();
     FlowMonitor::FlowStatsContainer stats = g_monitor->GetFlowStats();
 
-    uint64_t totalRx = 0;
-    uint64_t r1TotalRx = 0;
-
     for (auto it = stats.begin(); it != stats.end(); ++it)
     {
         Ipv4FlowClassifier::FiveTuple t = g_classifier->FindFlow(it->first);
-        // Only count traffic originating from the server (Forward path)
+
+        // Filter for traffic originating from the server
         if (t.sourceAddress == Ipv4Address("10.0.0.1"))
         {
-            totalRx += it->second.rxBytes;
-            r1TotalRx += it->second.rxBytes;
+            uint64_t currentRx = it->second.rxBytes;
+            uint64_t prevRx = g_prevFlowRx[it->first]; // Defaults to 0 if not found
+
+            if (now > g_previousSampleTime)
+            {
+                // Calculate throughput in Mbps
+                double mbps = (currentRx - prevRx) * 8.0 /
+                              (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
+
+                // Output format: timestamp "client ip" throughput
+                g_clients_throughput << std::fixed << std::setprecision(3) << now.GetSeconds()
+                                     << " \"" << t.destinationAddress << "\" " << mbps << std::endl;
+            }
+            g_prevFlowRx[it->first] = currentRx;
         }
     }
 
-    if (now > g_previousSampleTime)
-    {
-        const double mbps = (totalRx - g_previousTotalRx) * 8.0 /
-                            (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
-        const double r1Mbps = (r1TotalRx - g_previousR1TotalRx) * 8.0 /
-                              (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
-        g_throughput << std::fixed << std::setprecision(3) << now.GetSeconds() << " " << mbps << " "
-                     << r1Mbps << std::endl;
-    }
-
-    g_previousTotalRx = totalRx;
-    g_previousR1TotalRx = r1TotalRx;
     g_previousSampleTime = now;
-    Simulator::Schedule(g_sampleInterval, &TraceAggregateThroughput);
+    Simulator::Schedule(g_sampleInterval, &TraceThroughput);
 }
 
 } // namespace
@@ -130,6 +130,9 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocketBase::UseEcn", EnumValue(TcpSocketState::On));
+
+    g_clients_throughput.open("clients_throughput.dat");
+    g_clients_throughput << "# time(s) \"client_ip\" throughput(Mbps)" << std::endl;
 
     NodeContainer server;
     NodeContainer routers;
@@ -228,7 +231,7 @@ main(int argc, char* argv[])
     g_throughput << "# time(s) aggregate-rx-throughput(Mbps) r1-aggregate-throughput(Mbps)"
                  << std::endl;
     g_previousSampleTime = Seconds(0);
-    Simulator::Schedule(g_sampleInterval, &TraceAggregateThroughput);
+    Simulator::Schedule(g_sampleInterval, &TraceThroughput);
 
     Simulator::Stop(stopTime + Seconds(1));
     Simulator::Run();
@@ -261,6 +264,6 @@ main(int argc, char* argv[])
 
     Simulator::Destroy();
     g_throughput.close();
-
+    g_clients_throughput.close();
     return 0;
 }
