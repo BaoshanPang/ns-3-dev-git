@@ -26,6 +26,7 @@
 #include "ns3/network-module.h"
 #include "ns3/packet-sink.h"
 #include "ns3/point-to-point-module.h"
+#include "ns3/traffic-control-module.h"
 
 #include <fstream>
 #include <iomanip>
@@ -120,6 +121,7 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
     Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(16 * 1024 * 1024));
+    Config::SetDefault("ns3::TcpSocketBase::UseEcn", EnumValue(TcpSocketState::On));
 
     NodeContainer server;
     NodeContainer routers;
@@ -148,6 +150,12 @@ main(int argc, char* argv[])
     NetDeviceContainer serverDevices = serverLink.Install(server.Get(0), routers.Get(0));
     NetDeviceContainer r1r2Devices = routerLink.Install(routers.Get(0), routers.Get(1));
     NetDeviceContainer r1r3Devices = routerLink.Install(routers.Get(0), routers.Get(2));
+
+    TrafficControlHelper tch;
+    tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(0.1));
+    tch.Install(serverDevices.Get(1));
+    tch.Install(r1r2Devices.Get(0));
+    tch.Install(r1r3Devices.Get(0));
 
     Ipv4AddressHelper address;
     address.SetBase("10.0.0.0", "255.255.255.252");
