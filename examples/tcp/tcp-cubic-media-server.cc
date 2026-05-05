@@ -81,7 +81,7 @@ TraceAggregateThroughput()
 int
 main(int argc, char* argv[])
 {
-    uint32_t nClients = 1000;
+    uint32_t nClients = 10;
     uint64_t videoBytes = 0;
     uint32_t packetSize = 1448;
     std::string videoRate = "5Mbps";
@@ -153,7 +153,7 @@ main(int argc, char* argv[])
 
     TrafficControlHelper tch;
     tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(0.1));
-    tch.Install(serverDevices.Get(1));
+//    tch.Install(serverDevices.Get(1));
     tch.Install(r1r2Devices.Get(0));
     tch.Install(r1r3Devices.Get(0));
 

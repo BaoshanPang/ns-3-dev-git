@@ -52,6 +52,8 @@ class FifoQueueEcnDisc : public QueueDisc
     void InitializeParams() override;
 
     double m_markThreshold; //!< Fraction of MaxSize above which packets are marked
+    uint64_t m_accuLen;
+    Time m_prevTs;
 };
 
 } // namespace ns3

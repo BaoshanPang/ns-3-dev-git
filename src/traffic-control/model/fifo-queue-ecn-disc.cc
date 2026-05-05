@@ -46,6 +46,8 @@ FifoQueueEcnDisc::FifoQueueEcnDisc()
     : QueueDisc(QueueDiscSizePolicy::SINGLE_INTERNAL_QUEUE)
 {
     NS_LOG_FUNCTION(this);
+    m_prevTs = Simulator::Now();
+    m_accuLen = 0;
 }
 
 FifoQueueEcnDisc::~FifoQueueEcnDisc()
@@ -58,13 +60,13 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
 {
     NS_LOG_FUNCTION(this << item);
 
-    static uint64_t accu_len = 0;
-    static Time prev = Seconds(0);
     Time now = Simulator::Now();
-    Time interval = now - prev;
-    prev = now;
-    int qsize = accu_len - interval * 1000;
-    accu_len = qsize + item;
+    Time interval = now - m_prevTs;
+    m_prevTs = now;
+    double rate = 1000.0 * 1e6 / 8.0;
+    uint64_t drained = rate * interval.GetSeconds();
+    uint64_t qsize = m_accuLen > drained ? m_accuLen - drained : 0;
+    m_accuLen = qsize + item->GetSize();
 
     QueueSize newSize = GetCurrentSize() + item;
 
@@ -75,11 +77,7 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
         return false;
     }
 
-    uint32_t markThreshold =
-        static_cast<uint32_t>(m_markThreshold * GetMaxSize().GetValue());
-    markThreshold = std::max(markThreshold, 1U);
-
-    if (qsize >= markThreshold*750*1024 && Mark(item, ECN_MARK))
+    if (qsize >= m_markThreshold*750*1024 && Mark(item, ECN_MARK))
     {
         NS_LOG_LOGIC("Marking packet due to ECN marking threshold");
     }
