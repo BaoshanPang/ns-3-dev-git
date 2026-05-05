@@ -39,12 +39,14 @@ NS_LOG_COMPONENT_DEFINE("TcpCubicMediaServerExample");
 
 namespace
 {
+std::ofstream g_server_throughput;
+
+uint64_t g_serverBytesTotal = 0; // Accumulator for server Tx bytes
+uint64_t g_lastServerBytes = 0;  // Server bytes from previous sample
+
 std::ofstream g_clients_throughput;
 // Map to store previous Rx bytes per flow ID
 std::map<FlowId, uint64_t> g_prevFlowRx;
-std::ofstream g_throughput;
-uint64_t g_previousTotalRx = 0;
-uint64_t g_previousR1TotalRx = 0;
 Time g_previousSampleTime;
 Time g_sampleInterval;
 Ptr<FlowMonitor> g_monitor;
@@ -80,8 +82,28 @@ TraceThroughput()
         }
     }
 
+    // 2. Calculate aggregate server throughput using the trace source
+    if (now > g_previousSampleTime)
+    {
+        uint64_t diff = g_serverBytesTotal - g_lastServerBytes;
+        double serverMbps =
+            (diff * 8.0) / (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
+
+        g_server_throughput << std::fixed << std::setprecision(3) << now.GetSeconds() << " "
+                            << serverMbps << std::endl;
+
+        g_lastServerBytes = g_serverBytesTotal;
+    }
+
     g_previousSampleTime = now;
     Simulator::Schedule(g_sampleInterval, &TraceThroughput);
+}
+
+// Callback for NetDevice transmit trace
+void
+ServerTransmitSink(Ptr<const Packet> p)
+{
+    g_serverBytesTotal += p->GetSize();
 }
 
 } // namespace
@@ -112,14 +134,20 @@ main(int argc, char* argv[])
     cmd.AddValue("packetSize", "Video packet payload size in bytes", packetSize);
     cmd.AddValue("videoRate", "Per-client application send rate", videoRate);
     cmd.AddValue("tcpTypeId", "TCP congestion control, e.g., TcpCubic or TcpBbr", tcpTypeId);
-    cmd.AddValue("serverLinkRate", "Data rate of the media server to router 1 link", serverLinkRate);
+    cmd.AddValue("serverLinkRate",
+                 "Data rate of the media server to router 1 link",
+                 serverLinkRate);
     cmd.AddValue("serverLinkDelay", "Delay of the media server to router 1 link", serverLinkDelay);
     cmd.AddValue("routerLinkRate", "Data rate of the router 1 to router 2/3 links", routerLinkRate);
     cmd.AddValue("routerLinkDelay", "Delay of the router 1 to router 2/3 links", routerLinkDelay);
-    cmd.AddValue("clientLinkRate", "Data rate of each router-to-client access link", clientLinkRate);
+    cmd.AddValue("clientLinkRate",
+                 "Data rate of each router-to-client access link",
+                 clientLinkRate);
     cmd.AddValue("clientLinkDelay", "Delay of each router-to-client access link", clientLinkDelay);
     cmd.AddValue("startTime", "Time when the first client download starts", startTime);
-    cmd.AddValue("clientStartStagger", "Delay between consecutive client starts", clientStartStagger);
+    cmd.AddValue("clientStartStagger",
+                 "Delay between consecutive client starts",
+                 clientStartStagger);
     cmd.AddValue("stopTime", "Application stop time", stopTime);
     cmd.AddValue("sampleInterval", "Aggregate throughput sample interval", g_sampleInterval);
     cmd.AddValue("enablePcap", "Enable pcap tracing on the shared server link", enablePcap);
@@ -164,7 +192,7 @@ main(int argc, char* argv[])
 
     TrafficControlHelper tch;
     tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(0.1));
-//    tch.Install(serverDevices.Get(1));
+    //    tch.Install(serverDevices.Get(1));
     tch.Install(r1r2Devices.Get(0));
     tch.Install(r1r3Devices.Get(0));
 
@@ -227,11 +255,15 @@ main(int argc, char* argv[])
         serverLink.EnablePcap("tcp-cubic-media-server", serverDevices.Get(0), true);
     }
 
-    g_throughput.open("tcp-cubic-media-server-throughput.dat");
-    g_throughput << "# time(s) aggregate-rx-throughput(Mbps) r1-aggregate-throughput(Mbps)"
-                 << std::endl;
+    // Open server throughput file and write header
+    g_server_throughput.open("server_throughput.dat");
+    g_server_throughput << "# timestamp throughput" << std::endl;
+
     g_previousSampleTime = Seconds(0);
     Simulator::Schedule(g_sampleInterval, &TraceThroughput);
+
+    // serverDevices.Get(0) is the server's interface connected to router 1
+    serverDevices.Get(0)->TraceConnectWithoutContext("MacTx", MakeCallback(&ServerTransmitSink));
 
     Simulator::Stop(stopTime + Seconds(1));
     Simulator::Run();
@@ -251,19 +283,8 @@ main(int argc, char* argv[])
         }
     }
 
-    const double averageMbps = totalRx * 8.0 / (stopTime - startTime).ToDouble(Time::S) / 1000000.0;
-    const double r1AverageMbps =
-        r1TotalRx * 8.0 / (stopTime - startTime).ToDouble(Time::S) / 1000000.0;
-    std::cout << "Clients: " << nClients << std::endl;
-    std::cout << "Total bytes received: " << totalRx << std::endl;
-    std::cout << "Average aggregate receive throughput: " << averageMbps << " Mbps" << std::endl;
-    std::cout << "Total bytes seen by R1: " << r1TotalRx << std::endl;
-    std::cout << "Average aggregate throughput seen by R1: " << r1AverageMbps << " Mbps"
-              << std::endl;
-    std::cout << "Throughput trace: tcp-cubic-media-server-throughput.dat" << std::endl;
-
     Simulator::Destroy();
-    g_throughput.close();
     g_clients_throughput.close();
+    g_server_throughput.close();
     return 0;
 }
