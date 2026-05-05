@@ -22,6 +22,7 @@
 
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
+#include "ns3/flow-monitor-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
 #include "ns3/packet-sink.h"
@@ -39,39 +40,46 @@ NS_LOG_COMPONENT_DEFINE("TcpCubicMediaServerExample");
 namespace
 {
 
-std::vector<Ptr<PacketSink>> g_sinks;
 std::ofstream g_throughput;
 uint64_t g_previousTotalRx = 0;
+uint64_t g_previousR1TotalRx = 0;
 Time g_previousSampleTime;
 Time g_sampleInterval;
-
-uint64_t
-GetTotalRx()
-{
-    uint64_t totalRx = 0;
-    for (const auto& sink : g_sinks)
-    {
-        totalRx += sink->GetTotalRx();
-    }
-    return totalRx;
-}
+Ptr<FlowMonitor> g_monitor;
+Ptr<Ipv4FlowClassifier> g_classifier;
 
 void
 TraceAggregateThroughput()
 {
     const Time now = Simulator::Now();
-    const uint64_t totalRx = GetTotalRx();
+    FlowMonitor::FlowStatsContainer stats = g_monitor->GetFlowStats();
+
+    uint64_t totalRx = 0;
+    uint64_t r1TotalRx = 0;
+
+    for (auto it = stats.begin(); it != stats.end(); ++it)
+    {
+        Ipv4FlowClassifier::FiveTuple t = g_classifier->FindFlow(it->first);
+        // Only count traffic originating from the server (Forward path)
+        if (t.sourceAddress == Ipv4Address("10.0.0.1"))
+        {
+            totalRx += it->second.rxBytes;
+            r1TotalRx += it->second.rxBytes;
+        }
+    }
 
     if (now > g_previousSampleTime)
     {
-        const double mbps =
-            (totalRx - g_previousTotalRx) * 8.0 /
-            (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
-        g_throughput << std::fixed << std::setprecision(3) << now.GetSeconds() << " " << mbps
-                     << std::endl;
+        const double mbps = (totalRx - g_previousTotalRx) * 8.0 /
+                            (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
+        const double r1Mbps = (r1TotalRx - g_previousR1TotalRx) * 8.0 /
+                              (now - g_previousSampleTime).ToDouble(Time::S) / 1000000.0;
+        g_throughput << std::fixed << std::setprecision(3) << now.GetSeconds() << " " << mbps << " "
+                     << r1Mbps << std::endl;
     }
 
     g_previousTotalRx = totalRx;
+    g_previousR1TotalRx = r1TotalRx;
     g_previousSampleTime = now;
     Simulator::Schedule(g_sampleInterval, &TraceAggregateThroughput);
 }
@@ -84,7 +92,7 @@ main(int argc, char* argv[])
     uint32_t nClients = 10;
     uint64_t videoBytes = 0;
     uint32_t packetSize = 1448;
-    std::string videoRate = "5Mbps";
+    std::string videoRate = "100Mbps";
     std::string tcpTypeId = "TcpCubic";
     std::string serverLinkRate = "10000Mbps";
     std::string serverLinkDelay = "2ms";
@@ -180,6 +188,10 @@ main(int argc, char* argv[])
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
 
+    FlowMonitorHelper flowmon;
+    g_monitor = flowmon.InstallAll();
+    g_classifier = DynamicCast<Ipv4FlowClassifier>(flowmon.GetClassifier());
+
     ApplicationContainer sinkApps;
     ApplicationContainer sourceApps;
     const uint16_t basePort = 9000;
@@ -191,7 +203,6 @@ main(int argc, char* argv[])
                               InetSocketAddress(Ipv4Address::GetAny(), port));
         ApplicationContainer sinkApp = sink.Install(clients.Get(i));
         sinkApps.Add(sinkApp);
-        g_sinks.push_back(DynamicCast<PacketSink>(sinkApp.Get(0)));
 
         OnOffHelper source("ns3::TcpSocketFactory", InetSocketAddress(clientAddresses[i], port));
         source.SetAttribute("DataRate", DataRateValue(DataRate(videoRate)));
@@ -214,19 +225,38 @@ main(int argc, char* argv[])
     }
 
     g_throughput.open("tcp-cubic-media-server-throughput.dat");
-    g_throughput << "# time(s) aggregate-rx-throughput(Mbps)" << std::endl;
+    g_throughput << "# time(s) aggregate-rx-throughput(Mbps) r1-aggregate-throughput(Mbps)"
+                 << std::endl;
     g_previousSampleTime = Seconds(0);
     Simulator::Schedule(g_sampleInterval, &TraceAggregateThroughput);
 
     Simulator::Stop(stopTime + Seconds(1));
     Simulator::Run();
 
-    const uint64_t totalRx = GetTotalRx();
-    const double averageMbps =
-        totalRx * 8.0 / (stopTime - startTime).ToDouble(Time::S) / 1000000.0;
+    FlowMonitor::FlowStatsContainer stats = g_monitor->GetFlowStats();
+    uint64_t totalRx = 0;
+    uint64_t r1TotalRx = 0;
+
+    for (auto it = stats.begin(); it != stats.end(); ++it)
+    {
+        Ipv4FlowClassifier::FiveTuple t = g_classifier->FindFlow(it->first);
+        // Only count traffic originating from the server (Forward path)
+        if (t.sourceAddress == Ipv4Address("10.0.0.1"))
+        {
+            totalRx += it->second.rxBytes;
+            r1TotalRx += it->second.rxBytes;
+        }
+    }
+
+    const double averageMbps = totalRx * 8.0 / (stopTime - startTime).ToDouble(Time::S) / 1000000.0;
+    const double r1AverageMbps =
+        r1TotalRx * 8.0 / (stopTime - startTime).ToDouble(Time::S) / 1000000.0;
     std::cout << "Clients: " << nClients << std::endl;
     std::cout << "Total bytes received: " << totalRx << std::endl;
     std::cout << "Average aggregate receive throughput: " << averageMbps << " Mbps" << std::endl;
+    std::cout << "Total bytes seen by R1: " << r1TotalRx << std::endl;
+    std::cout << "Average aggregate throughput seen by R1: " << r1AverageMbps << " Mbps"
+              << std::endl;
     std::cout << "Throughput trace: tcp-cubic-media-server-throughput.dat" << std::endl;
 
     Simulator::Destroy();

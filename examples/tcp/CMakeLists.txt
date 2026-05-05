@@ -60,6 +60,9 @@ build_example(
     ${libpoint-to-point}
     ${libapplications}
     ${libinternet}
+    ${libtraffic-control}
+    ${libnetwork}
+    ${libflow-monitor}
 )
 
 build_example(
