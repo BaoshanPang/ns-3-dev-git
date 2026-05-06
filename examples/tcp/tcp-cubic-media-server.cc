@@ -130,7 +130,6 @@ Router1ReceiveSink(Ptr<const Packet> p)
 
 std::ofstream g_server_rtt;
 
-
 // Callback for TCP RTT changes
 void
 RttTracer(Time oldRtt, Time newRtt)
@@ -146,8 +145,23 @@ TraceRtt()
                                   MakeCallback(&RttTracer));
 }
 
+std::ofstream g_router1_queue;
 
+void
+TraceQueueSize(Ptr<QueueDisc> queueDisc)
+{
+    const Time now = Simulator::Now();
 
+    // Get the number of packets in the first internal queue
+    uint32_t size = queueDisc->GetInternalQueue(0)->GetNPackets();
+
+    // Write in format: timestamp queue_size
+    g_router1_queue << std::fixed << std::setprecision(3) << now.GetSeconds() << " " << size
+                    << std::endl;
+
+    // Reschedule the next sample using the same interval as throughput
+    Simulator::Schedule(g_sampleInterval, &TraceQueueSize, queueDisc);
+}
 
 } // namespace
 
@@ -163,13 +177,14 @@ main(int argc, char* argv[])
     std::string serverLinkDelay = "2ms";
     std::string routerLinkRate = "1000Mbps";
     std::string routerLinkDelay = "5ms";
-    std::string clientLinkRate = "100Mbps";
+    std::string clientLinkRate = "1000Mbps";
     std::string clientLinkDelay = "20ms";
     Time startTime = Seconds(0);
-    Time clientStartStagger = MilliSeconds(2);
+    Time clientStartStagger = MilliSeconds(200);
     Time stopTime = Seconds(10);
-    g_sampleInterval = Seconds(1);
+    g_sampleInterval = Seconds(0.1);
     bool enablePcap = false;
+    double markThreshold = 0.1;
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("nClients", "Number of video clients", nClients);
@@ -194,6 +209,8 @@ main(int argc, char* argv[])
     cmd.AddValue("stopTime", "Application stop time", stopTime);
     cmd.AddValue("sampleInterval", "Aggregate throughput sample interval", g_sampleInterval);
     cmd.AddValue("enablePcap", "Enable pcap tracing on the shared server link", enablePcap);
+    cmd.AddValue("markThreshold", "ECN marking threshold for the queue disc", markThreshold);
+
     cmd.Parse(argc, argv);
 
     Config::SetDefault("ns3::TcpL4Protocol::SocketType", StringValue("ns3::" + tcpTypeId));
@@ -201,7 +218,6 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocketBase::UseEcn", EnumValue(TcpSocketState::On));
-
 
     // Print the specific values being used for this simulation run
     std::cout << "\n========== Simulation Configuration Values ==========" << std::endl;
@@ -217,10 +233,12 @@ main(int argc, char* argv[])
     std::cout << "clientLinkRate:     " << clientLinkRate << std::endl;
     std::cout << "clientLinkDelay:    " << clientLinkDelay << std::endl;
     std::cout << "startTime:          " << startTime.GetSeconds() << "s" << std::endl;
-    std::cout << "clientStartStagger: " << clientStartStagger.GetMilliSeconds() << "ms" << std::endl;
+    std::cout << "clientStartStagger: " << clientStartStagger.GetMilliSeconds() << "ms"
+              << std::endl;
     std::cout << "stopTime:           " << stopTime.GetSeconds() << "s" << std::endl;
     std::cout << "sampleInterval:     " << g_sampleInterval.GetSeconds() << "s" << std::endl;
     std::cout << "enablePcap:         " << (enablePcap ? "true" : "false") << std::endl;
+    std::cout << "markThreshold:      " << markThreshold << std::endl;
     std::cout << "====================================================\n" << std::endl;
 
     g_clients_throughput.open("clients_throughput.dat");
@@ -258,10 +276,12 @@ main(int argc, char* argv[])
     NetDeviceContainer r1r3Devices = routerLink.Install(routers.Get(0), routers.Get(2));
 
     TrafficControlHelper tch;
-    tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(0.1));
+    tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(markThreshold));
     //    tch.Install(serverDevices.Get(1));
-    tch.Install(r1r2Devices.Get(0));
+    QueueDiscContainer qdc = tch.Install(r1r2Devices.Get(0));
     tch.Install(r1r3Devices.Get(0));
+
+    Simulator::Schedule(startTime, &TraceQueueSize, qdc.Get(0));
 
     Ipv4AddressHelper address;
     address.SetBase("10.0.0.0", "255.255.255.252");
@@ -326,6 +346,9 @@ main(int argc, char* argv[])
     g_server_throughput.open("server_throughput.dat");
     g_server_throughput << "# timestamp throughput" << std::endl;
 
+    g_router1_queue.open("router1_queue.dat");
+    g_router1_queue << "# timestamp queue_size" << std::endl;
+
     g_previousSampleTime = Seconds(0);
     Simulator::Schedule(g_sampleInterval, &TraceThroughput);
 
@@ -360,5 +383,6 @@ main(int argc, char* argv[])
     g_server_throughput.close();
     g_router1_throughput.close();
     g_server_rtt.close();
+    g_router1_queue.close();
     return 0;
 }

@@ -67,7 +67,6 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
     uint64_t drained = rate * interval.GetSeconds();
     uint64_t qsize = m_accuLen > drained ? m_accuLen - drained : 0;
     m_accuLen = qsize + item->GetSize();
-
     QueueSize newSize = GetCurrentSize() + item;
 
     if (newSize > GetMaxSize())
@@ -79,6 +78,12 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
 
     if (qsize >= m_markThreshold*750*1024 && Mark(item, ECN_MARK))
     {
+#if 0
+        fprintf(stderr,
+                "%f: qsize %ld m_accuLen %ld inter %f m_markThreshold %f drained %ld "
+                "bytes_in_queue %d Number packets %d\n",
+                now.GetSeconds(), qsize, m_accuLen, interval.GetSeconds(), m_markThreshold, drained, GetInternalQueue(0)->GetNBytes(), GetInternalQueue(0)->GetNPackets());
+#endif
         NS_LOG_LOGIC("Marking packet due to ECN marking threshold");
     }
 
