@@ -38,7 +38,7 @@ FifoQueueEcnDisc::GetTypeId()
                           "The fraction of MaxSize above which packets are marked",
                           DoubleValue(1.0),
                           MakeDoubleAccessor(&FifoQueueEcnDisc::m_markThreshold),
-                          MakeDoubleChecker<double>(0.0, 1.0));
+                          MakeDoubleChecker<double>(0.0, 100.0));
     return tid;
 }
 

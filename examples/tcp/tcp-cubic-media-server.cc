@@ -184,6 +184,7 @@ main(int argc, char* argv[])
     Time stopTime = Seconds(10);
     g_sampleInterval = Seconds(0.1);
     bool enablePcap = false;
+    bool useEcn = true;
     double markThreshold = 0.1;
 
     CommandLine cmd(__FILE__);
@@ -209,6 +210,7 @@ main(int argc, char* argv[])
     cmd.AddValue("stopTime", "Application stop time", stopTime);
     cmd.AddValue("sampleInterval", "Aggregate throughput sample interval", g_sampleInterval);
     cmd.AddValue("enablePcap", "Enable pcap tracing on the shared server link", enablePcap);
+    cmd.AddValue("useEcn", "Enable ECN for TCP and the FIFO queue disc", useEcn);
     cmd.AddValue("markThreshold", "ECN marking threshold for the queue disc", markThreshold);
 
     cmd.Parse(argc, argv);
@@ -217,7 +219,8 @@ main(int argc, char* argv[])
     Config::SetDefault("ns3::TcpSocket::SegmentSize", UintegerValue(1448));
     Config::SetDefault("ns3::TcpSocket::SndBufSize", UintegerValue(16 * 1024 * 1024));
     Config::SetDefault("ns3::TcpSocket::RcvBufSize", UintegerValue(16 * 1024 * 1024));
-    Config::SetDefault("ns3::TcpSocketBase::UseEcn", EnumValue(TcpSocketState::On));
+    Config::SetDefault("ns3::TcpSocketBase::UseEcn",
+                       (useEcn ? EnumValue(TcpSocketState::On) : EnumValue(TcpSocketState::On))); // always on on tcp socket
 
     // Print the specific values being used for this simulation run
     std::cout << "\n========== Simulation Configuration Values ==========" << std::endl;
@@ -238,6 +241,7 @@ main(int argc, char* argv[])
     std::cout << "stopTime:           " << stopTime.GetSeconds() << "s" << std::endl;
     std::cout << "sampleInterval:     " << g_sampleInterval.GetSeconds() << "s" << std::endl;
     std::cout << "enablePcap:         " << (enablePcap ? "true" : "false") << std::endl;
+    std::cout << "useEcn:             " << (useEcn ? "true" : "false") << std::endl;
     std::cout << "markThreshold:      " << markThreshold << std::endl;
     std::cout << "====================================================\n" << std::endl;
 
@@ -276,7 +280,14 @@ main(int argc, char* argv[])
     NetDeviceContainer r1r3Devices = routerLink.Install(routers.Get(0), routers.Get(2));
 
     TrafficControlHelper tch;
-    tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(markThreshold));
+    if (useEcn)
+    {
+        tch.SetRootQueueDisc("ns3::FifoQueueEcnDisc", "MarkThreshold", DoubleValue(markThreshold));
+    }
+    else
+    {
+        tch.SetRootQueueDisc("ns3::FifoQueueDisc");
+    }
     //    tch.Install(serverDevices.Get(1));
     QueueDiscContainer qdc = tch.Install(r1r2Devices.Get(0));
     tch.Install(r1r3Devices.Get(0));
