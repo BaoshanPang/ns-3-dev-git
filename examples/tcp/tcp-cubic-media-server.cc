@@ -165,6 +165,8 @@ TraceQueueSize(Ptr<QueueDisc> queueDisc)
 
 } // namespace
 
+// TODO:
+// 10 vs no_ecn
 int
 main(int argc, char* argv[])
 {
@@ -178,9 +180,9 @@ main(int argc, char* argv[])
     std::string routerLinkRate = "1000Mbps";
     std::string routerLinkDelay = "5ms";
     std::string clientLinkRate = "1000Mbps";
-    std::string clientLinkDelay = "20ms";
+    std::string clientLinkDelay = "20ms"; // 5 - 50
     Time startTime = Seconds(0);
-    Time clientStartStagger = MilliSeconds(200);
+    Time clientStartStagger = MilliSeconds(2);
     Time stopTime = Seconds(10);
     g_sampleInterval = Seconds(0.1);
     bool enablePcap = false;
