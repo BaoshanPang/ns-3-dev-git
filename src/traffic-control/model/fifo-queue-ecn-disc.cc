@@ -60,13 +60,6 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
 {
     NS_LOG_FUNCTION(this << item);
 
-    Time now = Simulator::Now();
-    Time interval = now - m_prevTs;
-    m_prevTs = now;
-    double rate = 1000.0 * 1e6 / 8.0;
-    uint64_t drained = rate * interval.GetSeconds();
-    uint64_t qsize = m_accuLen > drained ? m_accuLen - drained : 0;
-    m_accuLen = qsize + item->GetSize();
     QueueSize newSize = GetCurrentSize() + item;
 
     if (newSize > GetMaxSize())
@@ -76,8 +69,17 @@ FifoQueueEcnDisc::DoEnqueue(Ptr<QueueDiscItem> item)
         return false;
     }
 
-    if (qsize >= m_markThreshold*750*1024 && Mark(item, ECN_MARK))
-    {
+    Time now = Simulator::Now();
+    Time interval = now - m_prevTs;
+    m_prevTs = now;
+    double rate = 1000.0 * 1e6 / 8.0;
+    uint64_t drained = rate * interval.GetSeconds();
+    uint64_t qsize = m_accuLen > drained ? m_accuLen - drained : 0;
+    m_accuLen = qsize + item->GetSize();
+
+    if (qsize >= m_markThreshold * 750 * 1024)
+      {
+        Mark(item, ECN_MARK);
 #if 0
         fprintf(stderr,
                 "%f: qsize %ld m_accuLen %ld inter %f m_markThreshold %f drained %ld "

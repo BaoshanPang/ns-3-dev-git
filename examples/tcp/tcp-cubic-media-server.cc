@@ -180,7 +180,8 @@ main(int argc, char* argv[])
     std::string routerLinkRate = "1000Mbps";
     std::string routerLinkDelay = "5ms";
     std::string clientLinkRate = "1000Mbps";
-    std::string clientLinkDelay = "20ms"; // 5 - 50
+    double clientLinkMinDelayMs = 5.0;
+    double clientLinkMaxDelayMs = 50.0;
     Time startTime = Seconds(0);
     Time clientStartStagger = MilliSeconds(2);
     Time stopTime = Seconds(10);
@@ -204,7 +205,12 @@ main(int argc, char* argv[])
     cmd.AddValue("clientLinkRate",
                  "Data rate of each router-to-client access link",
                  clientLinkRate);
-    cmd.AddValue("clientLinkDelay", "Delay of each router-to-client access link", clientLinkDelay);
+    cmd.AddValue("clientLinkMinDelayMs",
+                 "Minimum random delay of each router-to-client access link in milliseconds",
+                 clientLinkMinDelayMs);
+    cmd.AddValue("clientLinkMaxDelayMs",
+                 "Maximum random delay of each router-to-client access link in milliseconds",
+                 clientLinkMaxDelayMs);
     cmd.AddValue("startTime", "Time when the first client download starts", startTime);
     cmd.AddValue("clientStartStagger",
                  "Delay between consecutive client starts",
@@ -236,7 +242,8 @@ main(int argc, char* argv[])
     std::cout << "routerLinkRate:     " << routerLinkRate << std::endl;
     std::cout << "routerLinkDelay:    " << routerLinkDelay << std::endl;
     std::cout << "clientLinkRate:     " << clientLinkRate << std::endl;
-    std::cout << "clientLinkDelay:    " << clientLinkDelay << std::endl;
+    std::cout << "clientLinkDelay:    " << clientLinkMinDelayMs << "ms to " << clientLinkMaxDelayMs
+              << "ms (uniform random per client link)" << std::endl;
     std::cout << "startTime:          " << startTime.GetSeconds() << "s" << std::endl;
     std::cout << "clientStartStagger: " << clientStartStagger.GetMilliSeconds() << "ms"
               << std::endl;
@@ -275,7 +282,10 @@ main(int argc, char* argv[])
 
     PointToPointHelper clientLink;
     clientLink.SetDeviceAttribute("DataRate", StringValue(clientLinkRate));
-    clientLink.SetChannelAttribute("Delay", StringValue(clientLinkDelay));
+
+    Ptr<UniformRandomVariable> clientDelayRv = CreateObject<UniformRandomVariable>();
+    clientDelayRv->SetAttribute("Min", DoubleValue(clientLinkMinDelayMs));
+    clientDelayRv->SetAttribute("Max", DoubleValue(clientLinkMaxDelayMs));
 
     NetDeviceContainer serverDevices = serverLink.Install(server.Get(0), routers.Get(0));
     NetDeviceContainer r1r2Devices = routerLink.Install(routers.Get(0), routers.Get(1));
@@ -311,6 +321,8 @@ main(int argc, char* argv[])
     {
         Ptr<Node> accessRouter = routers.Get(i % 2 == 0 ? 1 : 2);
         NodeContainer pair(accessRouter, clients.Get(i));
+        clientLink.SetChannelAttribute("Delay",
+                                       TimeValue(MilliSeconds(clientDelayRv->GetValue())));
         NetDeviceContainer devices = clientLink.Install(pair);
         Ipv4InterfaceContainer interfaces = address.Assign(devices);
         clientAddresses.push_back(interfaces.GetAddress(1));
